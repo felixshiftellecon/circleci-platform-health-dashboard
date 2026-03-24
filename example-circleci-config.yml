@@ -1,0 +1,90 @@
+version: 2.1
+
+parameters:
+  run-schedule:
+    type: boolean
+    default: false
+
+executors:
+  python:
+    docker:
+      - image: cimg/python:3.12
+    resource_class: small
+
+jobs:
+  load-usage-data:
+    executor: python
+    steps:
+      - checkout
+      - run:
+          name: Install dependencies
+          command: pip install -r scripts/requirements.txt
+      - run:
+          name: Download usage data (last 3 days)
+          command: |
+            python3 scripts/download-usage.py \
+              --org-id "${CIRCLECI_ORG_ID}" \
+              --api-token "${CIRCLECI_API_TOKEN}" \
+              --start-date "$(date -u -d '3 days ago' +%Y-%m-%d 2>/dev/null || date -u -v-3d +%Y-%m-%d)" \
+              --end-date "$(date -u +%Y-%m-%d)" \
+              --output-dir ./data
+      - run:
+          name: Load into PostgreSQL
+          command: |
+            PGPASSWORD="${PGPASSWORD}" python3 scripts/pg-loader.py \
+              --directory ./data \
+              --host "${PGHOST}" \
+              --port "${PGPORT:-5432}" \
+              --database "${PGDATABASE:-circleci_usage}" \
+              --user "${PGUSER}" \
+              --create-schema \
+              --summary
+
+  load-audit-logs:
+    executor: python
+    steps:
+      - checkout
+      - run:
+          name: Install dependencies
+          command: pip install -r scripts/requirements.txt
+      - run:
+          name: Load audit logs from S3
+          command: |
+            PGPASSWORD="${PGPASSWORD}" python3 scripts/audit-log-loader.py s3 \
+              --bucket "${AUDIT_LOG_BUCKET}" \
+              --prefix "${AUDIT_LOG_PREFIX:-}" \
+              --region "${AWS_DEFAULT_REGION:-us-east-2}" \
+              --host "${PGHOST}" \
+              --port "${PGPORT:-5432}" \
+              --database "${PGDATABASE:-circleci_usage}" \
+              --user "${PGUSER}" \
+              --create-schema \
+              --summary
+
+workflows:
+  # Scheduled data refresh -- runs daily via schedule trigger
+  daily-data-load:
+    when: << pipeline.parameters.run-schedule >>
+    jobs:
+      - load-usage-data:
+          context:
+            - circleci-usage-db
+            - circleci-api
+      - load-audit-logs:
+          context:
+            - circleci-usage-db
+            - aws-audit-logs
+          requires:
+            - load-usage-data
+
+  # Manual trigger -- runs on push (useful for testing or backfill)
+  manual:
+    unless: << pipeline.parameters.run-schedule >>
+    jobs:
+      - load-usage-data:
+          context:
+            - circleci-usage-db
+            - circleci-api
+          filters:
+            branches:
+              only: main
