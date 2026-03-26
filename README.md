@@ -20,6 +20,14 @@ CircleCI Audit Logs ──> S3 bucket ──> audit-log-loader.py ────�
 
 The `dashboard_config` table in PostgreSQL stores configurable values like `cost_per_credit`. Dashboard SQL queries reference this table directly, so there are no customer-specific values embedded in the dashboard itself.
 
+## Prerequisites
+
+- Docker and Docker Compose
+- Python 3.9+
+- A CircleCI API token with org-level read access
+- Your CircleCI organization UUID
+- (For audit logs) An S3 bucket configured for CircleCI audit log streaming, or local JSON exports
+
 ## Quick Start
 
 ### 1. Start the stack
@@ -355,11 +363,3 @@ ci-platform-health-dashboard/
 │   └── build-dashboard.py                 # Dashboard generator (dev tool)
 └── data/                                  # CSV/JSON storage (gitignored)
 ```
-
-## Prerequisites
-
-- Docker and Docker Compose
-- Python 3.9+
-- A CircleCI API token with org-level read access
-- Your CircleCI organization UUID
-- (For audit logs) An S3 bucket configured for CircleCI audit log streaming, or local JSON exports
